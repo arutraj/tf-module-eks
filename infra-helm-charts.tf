@@ -6,6 +6,7 @@ resource "null_resource" "get-kubeconfig" {
     command = <<EOF
 rm -rf ~/.kube
 aws eks update-kubeconfig --name "${var.env}-eks"
+sleep 300
 EOF
   }
 
@@ -77,4 +78,47 @@ EOF
   }
 
 }
+
+## External DNS
+data "kubectl_file_documents" "external-dns" {
+  content = file("${path.module}/external-dns.yaml")
+}
+
+resource "kubectl_manifest" "external-dns" {
+  depends_on = [null_resource.get-kubeconfig]
+
+  count              = length(data.kubectl_file_documents.external-dns.documents)
+  yaml_body          = data.kubectl_file_documents.external-dns.documents[count.index]
+}
+
+
+## Prometheus Helm Stack
+
+resource "null_resource" "prometheus-stack" {
+  depends_on = [null_resource.get-kubeconfig]
+
+  provisioner "local-exec" {
+    command = <<EOF
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm upgrade -i prometheus prometheus-community/kube-prometheus-stack -f ${path.module}/prometheus-dev.yaml
+EOF
+  }
+
+}
+
+
+## Filebeat Helm Chart
+
+resource "null_resource" "filebeat" {
+  depends_on = [null_resource.get-kubeconfig]
+
+  provisioner "local-exec" {
+    command = <<EOF
+helm repo add elastic https://helm.elastic.co
+helm install filebeat elastic/filebeat -f ${path.module}/filebeat.yml
+EOF
+  }
+
+}
+
 
